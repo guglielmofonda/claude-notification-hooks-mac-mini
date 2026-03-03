@@ -1,21 +1,24 @@
 # Claude Code Notification Hooks for macOS
 
-Never miss a Claude Code prompt again. When the agent needs your attention — permission dialogs, idle prompts, task completions — your **MacBook camera LED blinks** and a **voice announcement tells you which terminal window needs you**.
+Two voice announcements + a camera LED blink so you always know what Claude is doing — even when you're looking away from the screen.
 
 ```
-"Your agent needs you at ODF HQ"
+"Your agent needs you at ODF HQ"   ← needs your input
+"Finished at ODF HQ"               ← completed a task
 ```
 
-Both fire simultaneously so you notice even when you're away from the screen.
+The camera LED also blinks 5 times whenever Claude needs your attention.
 
 ---
 
 ## What it does
 
-| Signal | How | Why |
-|--------|-----|-----|
-| Camera LED blinks 5× | Briefly activates the FaceTime camera 5 times | The LED is hardwired to the sensor — the only way to flash it |
-| Voice says tab name | `say -v Daniel "Your agent needs you at <tab name>"` | Audible even when headphones are on or screen is off |
+| Event | Hook type | Signal |
+|-------|-----------|--------|
+| Claude needs your input (permission prompts, idle) | `Notification` | Camera LED blinks 5× + voice: *"Your agent needs you at \<tab\>"* |
+| Claude finishes a task | `Stop` | Voice: *"Finished at \<tab\>"* |
+
+Both announcements include the name of the terminal window Claude is running in, so you know which one to switch back to when you have multiple sessions open.
 
 ---
 
@@ -42,7 +45,7 @@ The tab-name announcement works with all three major macOS terminals:
 | **iTerm2** | `$ITERM_SESSION_ID` + AppleScript | None — works automatically |
 | **Terminal.app** | AppleScript frontmost window | None — works automatically |
 
-If you use a different terminal the hook falls back gracefully to *"Your agent needs you"* (no tab name).
+If you use a different terminal both hooks fall back gracefully to the announcement without a tab name (e.g. *"Finished"*).
 
 ---
 
@@ -62,45 +65,40 @@ mkdir -p ~/.claude/hooks
 
 ### 3. Copy the hook files
 
-Copy these three files into `~/.claude/hooks/`:
+Copy these four files into `~/.claude/hooks/`:
 
 - `camera-blink.sh` — blinks the camera LED
-- `notify.sh` — speaks the tab name
+- `notify.sh` — speaks *"Your agent needs you at \<tab\>"*
+- `stop.sh` — speaks *"Finished at \<tab\>"*
 - `ghostty-tab-name.py` — resolves the correct Ghostty window title (Ghostty users only)
 
-Make the scripts executable:
+Make them executable:
 
 ```bash
 chmod +x ~/.claude/hooks/camera-blink.sh
 chmod +x ~/.claude/hooks/notify.sh
+chmod +x ~/.claude/hooks/stop.sh
 chmod +x ~/.claude/hooks/ghostty-tab-name.py
 ```
 
-### 4. Update the hardcoded path in `notify.sh`
+### 4. Configure `~/.claude/settings.json`
 
-`notify.sh` calls `ghostty-tab-name.py` with an absolute path. Open `notify.sh` and replace the path on line 12 to match your home directory:
-
-```bash
-# Change this:
-TAB_NAME=$(python3 /Users/guglielmofonda/.claude/hooks/ghostty-tab-name.py "/dev/$tty_val" 2>/dev/null)
-
-# To this (replace YOUR_USERNAME):
-TAB_NAME=$(python3 /Users/YOUR_USERNAME/.claude/hooks/ghostty-tab-name.py "/dev/$tty_val" 2>/dev/null)
-```
-
-Or just use `$HOME`:
-
-```bash
-TAB_NAME=$(python3 "$HOME/.claude/hooks/ghostty-tab-name.py" "/dev/$tty_val" 2>/dev/null)
-```
-
-### 5. Configure `~/.claude/settings.json`
-
-Add the Notification hook to your Claude Code settings. Create the file if it doesn't exist:
+Add both hooks to your Claude Code settings. Create the file if it doesn't exist:
 
 ```json
 {
   "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/stop.sh"
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "matcher": "",
@@ -116,9 +114,9 @@ Add the Notification hook to your Claude Code settings. Create the file if it do
 }
 ```
 
-> The `&` runs camera-blink and notify in parallel. `wait` ensures Claude Code waits for both to finish before continuing.
+> For the `Notification` hook, `&` runs camera-blink and notify in parallel. `wait` ensures Claude Code waits for both to finish.
 
-### 6. Grant camera access
+### 5. Grant camera access
 
 The first time the hook fires, macOS will prompt for camera access for your terminal app. Click **Allow**, or go to:
 
@@ -146,7 +144,7 @@ This requires `/usr/bin/osascript` to have Accessibility permission.
 4. Type `/usr/bin/osascript` and press **Go**
 5. Click **Open**
 
-Once granted, tab names are read automatically. You can rename tabs natively in Ghostty (right-click the tab bar, or use the keyboard shortcut `Cmd + Shift + ,` on some builds) and the hook picks up the new name immediately — no shell commands needed.
+Once granted, tab names are read automatically. You can rename tabs natively in Ghostty (right-click the tab bar) and both hooks pick up the new name immediately — no shell commands needed.
 
 ---
 
@@ -172,6 +170,8 @@ done
 
 ## How the tab-name announcement works
 
+Both `notify.sh` and `stop.sh` use identical logic to resolve the tab name. They share `ghostty-tab-name.py` for Ghostty.
+
 ### Ghostty
 
 Ghostty does not expose tab titles through any of the standard mechanisms:
@@ -191,7 +191,7 @@ The solution (`ghostty-tab-name.py`) works in three stages:
 
 ### iTerm2
 
-iTerm2 sets `$ITERM_SESSION_ID` in every shell it spawns (e.g. `w0t0p0:GUID`). `notify.sh` passes this ID to AppleScript, which iterates iTerm2's window/tab/session hierarchy to find the exact session and return its tab label. This works correctly even when the iTerm2 window is not focused.
+iTerm2 sets `$ITERM_SESSION_ID` in every shell it spawns (e.g. `w0t0p0:GUID`). The scripts pass this ID to AppleScript, which iterates iTerm2's window/tab/session hierarchy to find the exact session and return its tab label. This works correctly even when the iTerm2 window is not focused.
 
 ### Terminal.app
 
@@ -226,21 +226,27 @@ List all available macOS voices:
 say -v '?'
 ```
 
-Edit the `say` lines in `notify.sh`:
+Edit the `say` lines in `notify.sh` and `stop.sh`:
 
 ```bash
 say -v Samantha "Your agent needs you at $TAB_NAME"
 ```
 
-### Change the message
+### Change the messages
 
+In `notify.sh`:
 ```bash
 say -v Daniel "Hey, Claude needs your attention at $TAB_NAME"
 ```
 
-### Narrow which events trigger the hook
+In `stop.sh`:
+```bash
+say -v Daniel "Claude is done at $TAB_NAME"
+```
 
-By default the hook fires on all notification types. Use a `matcher` in `settings.json` to limit it to specific events:
+### Narrow which events trigger the Notification hook
+
+By default the hook fires on all notification types. Use a `matcher` in `settings.json` to limit it:
 
 ```json
 "matcher": "permission_prompt"
@@ -262,22 +268,20 @@ Available matchers: `permission_prompt`, `idle_prompt`, `auth_success`, `elicita
 ### No voice announcement
 
 - Test manually: `say -v Daniel "test"`
-- Check that system volume isn't muted or that output isn't routed to a device that isn't playing
-- Confirm `notify.sh` is executable: `chmod +x ~/.claude/hooks/notify.sh`
+- Check that system volume isn't muted
+- Confirm the scripts are executable: `chmod +x ~/.claude/hooks/notify.sh ~/.claude/hooks/stop.sh`
 
-### Ghostty: announces "Your agent needs you" without a tab name
+### Ghostty: announces without a tab name
 
-- Check Accessibility permission is granted: **System Settings → Privacy & Security → Accessibility** → `/usr/bin/osascript` must be listed and toggled **on**
-- Test the Python helper manually from a Ghostty tab: `python3 ~/.claude/hooks/ghostty-tab-name.py /dev/$(ps -p $$ -o tty= | tr -d ' ')`
-- Verify the path in `notify.sh` line 12 matches your actual username
+- Check Accessibility permission: **System Settings → Privacy & Security → Accessibility** → `/usr/bin/osascript` must be listed and toggled **on**
+- Test the Python helper manually: `python3 ~/.claude/hooks/ghostty-tab-name.py /dev/$(ps -p $$ -o tty= | tr -d ' ')`
 - Make sure `ghostty-tab-name.py` is executable: `chmod +x ~/.claude/hooks/ghostty-tab-name.py`
 
 ### Hook doesn't fire at all
 
-- Run `/hooks` inside Claude Code to reload hook configuration
+- Run `/hooks` inside Claude Code to reload the configuration
 - Check `~/.claude/settings.json` for JSON syntax errors: `python3 -m json.tool ~/.claude/settings.json`
 - Verify all scripts are executable: `ls -la ~/.claude/hooks/`
-- Check that the paths in `settings.json` are absolute (not `~`-expanded, depending on your Claude Code version)
 
 ---
 
@@ -286,7 +290,8 @@ Available matchers: `permission_prompt`, `idle_prompt`, `auth_success`, `elicita
 ```
 ~/.claude/hooks/
 ├── camera-blink.sh        # Blinks the MacBook camera LED 5 times
-├── notify.sh              # Speaks "Your agent needs you at <tab name>"
+├── notify.sh              # "Your agent needs you at <tab>" (Notification hook)
+├── stop.sh                # "Finished at <tab>" (Stop hook)
 └── ghostty-tab-name.py    # Resolves Ghostty window title via OSC marker trick
 
 ~/.claude/settings.json    # Wires the hooks into Claude Code
