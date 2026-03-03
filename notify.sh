@@ -9,7 +9,7 @@ if [ -n "$GHOSTTY_RESOURCES_DIR" ] || [ "$TERM_PROGRAM" = "ghostty" ]; then
         [ -z "$parent_pid" ] || [ "$parent_pid" -le 1 ] && break
         tty_val=$(ps -p "$parent_pid" -o tty= 2>/dev/null | tr -d ' ')
         if [ -n "$tty_val" ] && [ "$tty_val" != "??" ]; then
-            TAB_NAME=$(python3 /Users/guglielmofonda/.claude/hooks/ghostty-tab-name.py "/dev/$tty_val" 2>/dev/null)
+            TAB_NAME=$(python3 $HOME/.claude/hooks/ghostty-tab-name.py "/dev/$tty_val" 2>/dev/null)
             break
         fi
     done
