@@ -1,13 +1,15 @@
-# Claude Code Notification Hooks for macOS
+# Claude Code Notification Hooks for Mac Mini
 
-Two voice announcements + a camera LED blink so you always know what Claude is doing — even when you're looking away from the screen.
+Voice announcements + system alerts so you always know what Claude is doing — even when you're looking away from the screen.
 
 ```
 "Your agent needs you at ODF HQ"   ← needs your input
 "Finished at ODF HQ"               ← completed a task
 ```
 
-The camera LED also blinks 5 times whenever Claude needs your attention.
+A macOS notification banner and system sound also fire whenever Claude needs your attention.
+
+> Adapted from [claude-notification-hooks](https://github.com/guglielmofonda/claude-notification-hooks) (MacBook version with camera LED blink).
 
 ---
 
@@ -15,7 +17,7 @@ The camera LED also blinks 5 times whenever Claude needs your attention.
 
 | Event | Hook type | Signal |
 |-------|-----------|--------|
-| Claude needs your input (permission prompts, idle) | `Notification` | Camera LED blinks 5× + voice: *"Your agent needs you at \<tab\>"* |
+| Claude needs your input (permission prompts, idle) | `Notification` | System sound + notification banner + voice: *"Your agent needs you at \<tab\>"* |
 | Claude finishes a task | `Stop` | Voice: *"Finished at \<tab\>"* |
 
 Both announcements include the name of the terminal window Claude is running in, so you know which one to switch back to when you have multiple sessions open.
@@ -25,15 +27,14 @@ Both announcements include the name of the terminal window Claude is running in,
 ## Requirements
 
 ### Hardware & OS
+- **Mac Mini** (or any Mac without a built-in camera)
 - **macOS** (tested on macOS 15 Sequoia, Apple Silicon)
-- **MacBook with built-in FaceTime camera** (for the LED blink feature)
 
 ### Software
 - **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** — the Anthropic CLI this hooks into
-- **[Homebrew](https://brew.sh)** — to install `imagesnap`
-- **[imagesnap](https://github.com/rharder/imagesnap)** — command-line camera capture tool used to toggle the LED
 - **Python 3** — ships with macOS, used by the Ghostty tab-name resolver
 - **`say`** — built into macOS, no installation needed
+- **`afplay`** — built into macOS, no installation needed
 
 ### Terminal
 
@@ -51,23 +52,17 @@ If you use a different terminal both hooks fall back gracefully to the announcem
 
 ## Installation
 
-### 1. Install imagesnap
-
-```bash
-brew install imagesnap
-```
-
-### 2. Create the hooks directory
+### 1. Create the hooks directory
 
 ```bash
 mkdir -p ~/.claude/hooks
 ```
 
-### 3. Copy the hook files
+### 2. Copy the hook files
 
 Copy these four files into `~/.claude/hooks/`:
 
-- `camera-blink.sh` — blinks the camera LED
+- `alert.sh` — plays a system sound + shows a macOS notification banner
 - `notify.sh` — speaks *"Your agent needs you at \<tab\>"*
 - `stop.sh` — speaks *"Finished at \<tab\>"*
 - `ghostty-tab-name.py` — resolves the correct Ghostty window title (Ghostty users only)
@@ -75,13 +70,13 @@ Copy these four files into `~/.claude/hooks/`:
 Make them executable:
 
 ```bash
-chmod +x ~/.claude/hooks/camera-blink.sh
+chmod +x ~/.claude/hooks/alert.sh
 chmod +x ~/.claude/hooks/notify.sh
 chmod +x ~/.claude/hooks/stop.sh
 chmod +x ~/.claude/hooks/ghostty-tab-name.py
 ```
 
-### 4. Configure `~/.claude/settings.json`
+### 3. Configure `~/.claude/settings.json`
 
 Add both hooks to your Claude Code settings. Create the file if it doesn't exist:
 
@@ -105,7 +100,7 @@ Add both hooks to your Claude Code settings. Create the file if it doesn't exist
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/camera-blink.sh & ~/.claude/hooks/notify.sh; wait"
+            "command": "~/.claude/hooks/alert.sh & ~/.claude/hooks/notify.sh; wait"
           }
         ]
       }
@@ -114,13 +109,7 @@ Add both hooks to your Claude Code settings. Create the file if it doesn't exist
 }
 ```
 
-> For the `Notification` hook, `&` runs camera-blink and notify in parallel. `wait` ensures Claude Code waits for both to finish.
-
-### 5. Grant camera access
-
-The first time the hook fires, macOS will prompt for camera access for your terminal app. Click **Allow**, or go to:
-
-**System Settings → Privacy & Security → Camera** → enable your terminal app.
+> For the `Notification` hook, `&` runs alert and notify in parallel. `wait` ensures Claude Code waits for both to finish.
 
 ---
 
@@ -148,75 +137,34 @@ Once granted, tab names are read automatically. You can rename tabs natively in 
 
 ---
 
-## How the camera LED trick works
+## How the alert works
 
-The MacBook camera LED is **hardwired to the image sensor at the hardware level**. There is no software API to control it independently — the LED can only turn on when the camera is actively capturing frames. This is a deliberate security design: you can always trust the LED as a true indicator of camera activity.
+Since Mac Mini has no built-in camera, the camera LED trick from the MacBook version is replaced with two built-in macOS mechanisms:
 
-`camera-blink.sh` exploits this by using `imagesnap` to capture a single frame 5 times in a loop:
+1. **System sound** — `afplay /System/Library/Sounds/Glass.aiff` plays the Glass chime through your speakers
+2. **Notification banner** — `display notification` shows a banner in the top-right corner of your screen via Notification Center
+
+Both fire in parallel so you get immediate audio + visual feedback.
+
+### Choosing a different sound
+
+macOS ships with several built-in sounds. List them:
 
 ```bash
-for _ in 1 2 3 4 5; do
-  imagesnap -w 0.5 /tmp/claude-snap.jpg &>/dev/null   # activate camera → LED on
-  rm -f /tmp/claude-snap.jpg
-  sleep 0.5                                            # release camera → LED off
-done
+ls /System/Library/Sounds/
 ```
 
-- `-w 0.5` is the camera warm-up time before capture
-- The hardware needs ~0.5s per cycle to produce a visibly distinct flash
-- The captured frames are immediately deleted — nothing is saved
+Common options: `Basso.aiff`, `Blow.aiff`, `Bottle.aiff`, `Frog.aiff`, `Funk.aiff`, `Glass.aiff`, `Hero.aiff`, `Morse.aiff`, `Ping.aiff`, `Pop.aiff`, `Purr.aiff`, `Sosumi.aiff`, `Submarine.aiff`, `Tink.aiff`.
 
----
+Edit `alert.sh` to use a different sound:
 
-## How the tab-name announcement works
-
-Both `notify.sh` and `stop.sh` use identical logic to resolve the tab name. They share `ghostty-tab-name.py` for Ghostty.
-
-### Ghostty
-
-Ghostty does not expose tab titles through any of the standard mechanisms:
-
-- **OSC `\033[21t`** (xterm title query) — Ghostty does not respond to this sequence
-- **`CGWindowListCopyWindowInfo`** — returns empty titles on macOS 15 without Screen Recording permission
-- **AppleScript scripting dictionary (`sdef`)** — not available; Ghostty uses App Intents instead
-- **`$GHOSTTY_SURFACE_ID`** — not inherited by Claude Code's subprocess environment
-
-The solution (`ghostty-tab-name.py`) works in three stages:
-
-1. **Find the parent TTY**: Walk the process tree from the hook subprocess upward until a TTY device is found (e.g. `/dev/ttys006`). This is the pseudo-terminal that Ghostty allocated for the shell running Claude Code.
-
-2. **Identify the window**: Write a unique OSC 0 title-change sequence to the PTY slave. Ghostty reads it from the PTY master and updates that window's title. By snapshotting all window titles before and after, we can identify exactly which window responded — even when that window is in the background behind other apps.
-
-3. **Restore and return**: The original title is taken from the pre-marker snapshot. It is written back to the PTY so the window title is restored. The name is stripped of any leading status decorators (e.g. Ghostty's braille-dot spinner `⠂`, `✳`) before being passed to `say`.
-
-### iTerm2
-
-iTerm2 sets `$ITERM_SESSION_ID` in every shell it spawns (e.g. `w0t0p0:GUID`). The scripts pass this ID to AppleScript, which iterates iTerm2's window/tab/session hierarchy to find the exact session and return its tab label. This works correctly even when the iTerm2 window is not focused.
-
-### Terminal.app
-
-Terminal.app is queried via AppleScript for `name of selected tab of front window`. This is best-effort: if Terminal.app is not the frontmost application, it returns the most recently active window's selected tab name.
+```bash
+afplay /System/Library/Sounds/Hero.aiff &
+```
 
 ---
 
 ## Customization
-
-### Change the number of blinks
-
-Edit `camera-blink.sh`:
-
-```bash
-for _ in 1 2 3; do   # 3 blinks instead of 5
-```
-
-### Change blink speed
-
-Adjust the `-w` warm-up and `sleep` durations. Lower than ~0.4s per phase makes the flashes imperceptible:
-
-```bash
-imagesnap -w 0.3 /tmp/claude-snap.jpg &>/dev/null
-sleep 0.3
-```
 
 ### Change the voice
 
@@ -258,12 +206,16 @@ Available matchers: `permission_prompt`, `idle_prompt`, `auth_success`, `elicita
 
 ## Troubleshooting
 
-### Camera LED doesn't blink
+### No sound plays
 
-- Verify imagesnap is installed: `which imagesnap` (install with `brew install imagesnap`)
-- Check camera permission: **System Settings → Privacy & Security → Camera** — your terminal app must be listed and enabled
-- Test manually: `imagesnap -w 0.5 /tmp/test.jpg && rm /tmp/test.jpg`
-- Confirm the script is executable: `ls -la ~/.claude/hooks/camera-blink.sh`
+- Test manually: `afplay /System/Library/Sounds/Glass.aiff`
+- Check that system volume isn't muted
+- Confirm the script is executable: `ls -la ~/.claude/hooks/alert.sh`
+
+### No notification banner
+
+- Check **System Settings → Notifications → Script Editor** — make sure banners are enabled
+- Test manually: `osascript -e 'display notification "test" with title "test"'`
 
 ### No voice announcement
 
@@ -285,11 +237,23 @@ Available matchers: `permission_prompt`, `idle_prompt`, `auth_success`, `elicita
 
 ---
 
+## Differences from the MacBook version
+
+| Feature | MacBook | Mac Mini |
+|---------|---------|----------|
+| Visual alert | Camera LED blinks 5× | macOS notification banner |
+| Audio alert | — | System sound (Glass chime) |
+| Voice announcement | ✓ | ✓ |
+| Tab name detection | ✓ | ✓ |
+| Dependencies | `imagesnap` via Homebrew | None (all built-in) |
+
+---
+
 ## File reference
 
 ```
 ~/.claude/hooks/
-├── camera-blink.sh        # Blinks the MacBook camera LED 5 times
+├── alert.sh               # System sound + notification banner (replaces camera blink)
 ├── notify.sh              # "Your agent needs you at <tab>" (Notification hook)
 ├── stop.sh                # "Finished at <tab>" (Stop hook)
 └── ghostty-tab-name.py    # Resolves Ghostty window title via OSC marker trick
